@@ -11,7 +11,7 @@ Een bestand, geen installatie. De i-Kozijn connector geeft de assistent het prec
 met de versie en de vingerafdruk erin:
 
 ```sh
-curl -sSfL -o ikozijn-leescontrole.mjs https://raw.githubusercontent.com/jappie-p/ikozijn-leescontrole/v1.0.0/ikozijn-leescontrole.mjs
+curl -sSfL -o ikozijn-leescontrole.mjs https://raw.githubusercontent.com/jappie-p/ikozijn-leescontrole/v1.0.1/ikozijn-leescontrole.mjs
 node ikozijn-leescontrole.mjs "scan.pdf" uitlezing.json --uit ./uit
 ```
 

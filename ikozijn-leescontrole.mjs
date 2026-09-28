@@ -323,6 +323,15 @@ var SAM_CELLS = {
   breedte: ["sam_links", "sam_rechts"],
   hoogte: ["sam_inwendig", "sam_uitwendig"]
 };
+function heeftLocatie(pos) {
+  const l = pos?.locatie || {};
+  const gevuld = (x) => {
+    const v = x && typeof x === "object" && "v" in x ? x.v : x;
+    const t = v == null ? "" : String(v).trim();
+    return t !== "" && !/^onbekend$/i.test(t);
+  };
+  return gevuld(l.gevel) || gevuld(l.zijde);
+}
 function cell(x) {
   if (x && typeof x === "object" && "prov" in x) {
     return { v: typeof x.v === "number" && Number.isFinite(x.v) ? x.v : null, prov: x.prov, sug: typeof x.sug === "number" ? x.sug : null };
@@ -489,7 +498,7 @@ function buildCheckList(doc, positieChecks) {
       });
     }
     const ruimteAlGemeld = items.some((i) => i.positie === pc.positie && i.veld === "ruimte");
-    if (pos && !ruimteAlGemeld && (pos.ruimte === null || pos.ruimte === void 0)) {
+    if (pos && !ruimteAlGemeld && (pos.ruimte === null || pos.ruimte === void 0) && !heeftLocatie(pos)) {
       items.push({ positie: pc.positie, ruimte: null, veld: "ruimte", type: "ontbreekt", reden: "geen ruimtenaam ingevuld", actie: "vul de ruimte in indien bekend" });
     }
   }
@@ -1286,7 +1295,7 @@ ${beeldCss}
 
 // ../inmeet/lib/pakket.js
 var PAKKET_NAAM = "ikozijn-leescontrole";
-var PAKKET_VERSIE = "1.0.0";
+var PAKKET_VERSIE = "1.0.1";
 
 // src/cli.mjs
 var HULP = `${PAKKET_NAAM} ${PAKKET_VERSIE}
