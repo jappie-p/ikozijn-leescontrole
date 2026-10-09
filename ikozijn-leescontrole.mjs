@@ -321,7 +321,7 @@ var AXES = {
 };
 var SAM_CELLS = {
   breedte: ["sam_links", "sam_rechts"],
-  hoogte: ["sam_inwendig", "sam_uitwendig"]
+  hoogte: []
 };
 function heeftLocatie(pos) {
   const l = pos?.locatie || {};
@@ -332,12 +332,34 @@ function heeftLocatie(pos) {
   };
   return gevuld(l.gevel) || gevuld(l.zijde);
 }
+function leesMaat(waarde2) {
+  if (typeof waarde2 === "number" && Number.isFinite(waarde2)) return { n: Math.abs(waarde2), plus: false };
+  if (typeof waarde2 !== "string") return null;
+  const m = /^\s*([+-])?\s*(\d+(?:[.,]\d+)?)\s*(?:mm)?\s*$/i.exec(waarde2);
+  if (!m) return null;
+  return { n: Number(m[2].replace(",", ".")), plus: m[1] === "+" };
+}
 function cell(x) {
   if (x && typeof x === "object" && "prov" in x) {
-    return { v: typeof x.v === "number" && Number.isFinite(x.v) ? x.v : null, prov: x.prov, sug: typeof x.sug === "number" ? x.sug : null };
+    const g2 = leesMaat(x.v);
+    const s = leesMaat(x.sug);
+    return { v: g2 ? g2.n : null, plus: Boolean(g2?.plus || x.plus === true), prov: x.prov, sug: s ? s.n : null };
   }
-  if (typeof x === "number" && Number.isFinite(x)) return { v: x, prov: "gelezen", sug: null };
-  return { v: null, prov: "geflagd", sug: null };
+  const g = leesMaat(x);
+  if (g) return { v: g.n, plus: g.plus, prov: "gelezen", sug: null };
+  return { v: null, plus: false, prov: "geflagd", sug: null };
+}
+var bijdrage = (c) => c.plus ? c.v : -c.v;
+var metTeken = (c) => c.plus ? `+ ${c.v}` : `- ${c.v}`;
+function somAs(maten, axis) {
+  const [uit2, inw, a, b] = AXES[axis].map((k) => cell(maten ? maten[k] : void 0));
+  if ([uit2, inw, a, b].some((c) => c.v === null)) return null;
+  const inwBerekend = uit2.v + bijdrage(a) + bijdrage(b);
+  return {
+    inwendig_berekend: inwBerekend,
+    afwijking_mm: inwBerekend - inw.v || 0,
+    berekening: `${uit2.v} ${metTeken(a)} ${metTeken(b)} = ${inwBerekend} (inwendig genoteerd ${inw.v})`
+  };
 }
 function getCell(maten, key) {
   return cell(maten ? maten[key] : void 0);
@@ -386,10 +408,7 @@ function axisCheck(maten, axis, positieType) {
       cel_provs: provs
     };
   }
-  const [uitV, inwV, aV, bV] = cells.map((c) => c.v);
-  const som = inwV + aV + bV;
-  const afw = uitV - som;
-  const berekening = `${inwV} + ${aV} + ${bV} = ${som} (uitwendig genoteerd ${uitV})`;
+  const { afwijking_mm: afw, berekening } = somAs(maten, axis);
   if (afw !== 0 && isSamengesteld) {
     return {
       axis,
@@ -414,20 +433,11 @@ function axisCheck(maten, axis, positieType) {
     ...isSamengesteld ? { toelichting: `${samReden}. De buitenmaten sluiten wel, maar bij een samengesteld kozijn hoeft de simpele som niet de juiste controle te zijn.` } : {}
   };
 }
-function geometrieAnomalie(maten, axis) {
-  const uit2 = getCell(maten, "uitwendig");
-  const inw = getCell(maten, "inwendig");
-  if (uit2.prov === "gelezen" && inw.prov === "gelezen" && uit2.v !== null && inw.v !== null && uit2.v < inw.v) {
-    return { axis, uitwendig: uit2.v, inwendig: inw.v, toelichting: `uitwendig (${uit2.v}) < inwendig (${inw.v}) is fysiek onmogelijk; beide helder gelezen, dus een echte formulier-anomalie` };
-  }
-  return null;
-}
 function checkPositie(pos) {
   const type = pos.positie_type === "samengesteld" ? "samengesteld" : "enkel";
   const breedte = axisCheck(pos.maten_breedte, "breedte", type);
   const hoogte = axisCheck(pos.maten_hoogte, "hoogte", type);
-  const geo = [geometrieAnomalie(pos.maten_breedte, "breedte"), geometrieAnomalie(pos.maten_hoogte, "hoogte")].filter(Boolean);
-  return { positie: pos.positie, ruimte: pos.ruimte ?? null, positie_type: type, confidence: positieConfidence(pos), breedte_check: breedte, hoogte_check: hoogte, geometrie: geo };
+  return { positie: pos.positie, ruimte: pos.ruimte ?? null, positie_type: type, confidence: positieConfidence(pos), breedte_check: breedte, hoogte_check: hoogte, geometrie: [] };
 }
 function buildCheckList(doc, positieChecks) {
   const items = [];
@@ -474,16 +484,6 @@ function buildCheckList(doc, positieChecks) {
           actie: "geen actie nodig als de positie inderdaad samengesteld is; controleer anders of de Sam.-cellen kloppen"
         });
       }
-    }
-    for (const g of pc.geometrie) {
-      items.push({
-        positie: pc.positie,
-        ruimte: pc.ruimte ?? null,
-        veld: `maten_${g.axis}`,
-        type: "geometrie_anomalie",
-        reden: g.toelichting,
-        actie: "onmogelijke maat: laat controleren"
-      });
     }
     const alGemeld = new Set(items.filter((i) => i.positie === pc.positie).map((i) => i.veld));
     for (const onz of onzekereVelden(pos)) {
@@ -979,9 +979,14 @@ function rij({ pad, label, region, positie, ruimte, plaats, waarde: waarde2, twi
     beeld
   };
 }
+function plaatsenVoor(posities) {
+  return posities.map((p, i) => plaatsVoorPositie(
+    Number.isInteger(p?.scan_blok) && p.scan_blok >= 1 ? p.scan_blok - 1 : i
+  ));
+}
 function bouwLeescontrole({ uitlezing: uitlezing2, controle: controle2, scanPad: scanPad2, dpi = 200 }) {
   const posities = uitlezing2?.posities ?? [];
-  const plaatsen = posities.map((_, i) => plaatsVoorPositie(i));
+  const plaatsen = plaatsenVoor(posities);
   const nodig = /* @__PURE__ */ new Map();
   for (const p of plaatsen) nodig.set(p.pagina, { nr: p.pagina, zijde: p.zijde });
   if (!nodig.has(1)) nodig.set(1, { nr: 1, zijde: "voorkant" });
@@ -1295,7 +1300,7 @@ ${beeldCss}
 
 // ../inmeet/lib/pakket.js
 var PAKKET_NAAM = "ikozijn-leescontrole";
-var PAKKET_VERSIE = "1.0.1";
+var PAKKET_VERSIE = "1.0.2";
 
 // src/cli.mjs
 var HULP = `${PAKKET_NAAM} ${PAKKET_VERSIE}
